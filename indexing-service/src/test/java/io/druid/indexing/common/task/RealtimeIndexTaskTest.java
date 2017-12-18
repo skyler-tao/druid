@@ -197,7 +197,7 @@ public class RealtimeIndexTaskTest
     public InputRow nextRow()
     {
       synchronized (this) {
-        final InputRow row = parser.parse(queue.remove(0));
+        final InputRow row = parser.parseBatch(queue.remove(0)).get(0);
         if (row != null && row.getRaw(FAIL_DIM) != null) {
           throw new ParseException(FAIL_DIM);
         }
@@ -893,7 +893,7 @@ public class RealtimeIndexTaskTest
     ObjectMapper objectMapper = new DefaultObjectMapper();
     DataSchema dataSchema = new DataSchema(
         "test_ds",
-        TestHelper.getJsonMapper().convertValue(
+        TestHelper.makeJsonMapper().convertValue(
             new MapInputRowParser(
                 new TimeAndDimsParseSpec(
                     new TimestampSpec("t", "auto", null),
@@ -931,6 +931,7 @@ public class RealtimeIndexTaskTest
         0,
         reportParseExceptions,
         handoffTimeout,
+        null,
         null
     );
     return new RealtimeIndexTask(

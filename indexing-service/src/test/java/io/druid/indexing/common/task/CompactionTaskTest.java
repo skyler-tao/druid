@@ -27,7 +27,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.inject.Injector;
 import io.druid.data.input.FirehoseFactory;
 import io.druid.data.input.impl.DimensionSchema;
 import io.druid.data.input.impl.DimensionsSpec;
@@ -70,7 +69,7 @@ import io.druid.segment.SimpleQueryableIndex;
 import io.druid.segment.column.Column;
 import io.druid.segment.column.ColumnBuilder;
 import io.druid.segment.column.ValueType;
-import io.druid.segment.data.CompressedObjectStrategy.CompressionStrategy;
+import io.druid.segment.data.CompressionStrategy;
 import io.druid.segment.data.CompressionFactory.LongEncodingStrategy;
 import io.druid.segment.data.ListIndexed;
 import io.druid.segment.data.RoaringBitmapSerdeFactory;
@@ -79,6 +78,7 @@ import io.druid.segment.indexing.DataSchema;
 import io.druid.segment.indexing.granularity.ArbitraryGranularitySpec;
 import io.druid.segment.loading.SegmentLoadingException;
 import io.druid.segment.transform.TransformingInputRowParser;
+import io.druid.segment.writeout.OffHeapMemorySegmentWriteOutMediumFactory;
 import io.druid.timeline.DataSegment;
 import io.druid.timeline.partition.NumberedShardSpec;
 import org.hamcrest.CoreMatchers;
@@ -120,7 +120,6 @@ public class CompactionTaskTest
       new DoubleDimensionSchema(MIXED_TYPE_COLUMN)
   );
   private static final IndexTuningConfig TUNING_CONFIG = createTuningConfig();
-  private static final Injector INJECTOR = GuiceInjectors.makeStartupInjector();
 
   private static Map<String, DimensionSchema> DIMENSIONS;
   private static Map<String, AggregatorFactory> AGGREGATORS;
@@ -200,7 +199,7 @@ public class CompactionTaskTest
             guiceIntrospector, objectMapper.getDeserializationConfig().getAnnotationIntrospector()
         )
     );
-    objectMapper.setInjectableValues(new GuiceInjectableValues(INJECTOR));
+    objectMapper.setInjectableValues(new GuiceInjectableValues(GuiceInjectors.makeStartupInjector()));
     objectMapper.registerModule(
         new SimpleModule().registerSubtypes(new NamedType(NumberedShardSpec.class, "NumberedShardSpec"))
     );
@@ -242,7 +241,8 @@ public class CompactionTaskTest
         false,
         true,
         false,
-        100L
+        100L,
+        null
     );
   }
 
@@ -261,7 +261,6 @@ public class CompactionTaskTest
         null,
         createTuningConfig(),
         ImmutableMap.of("testKey", "testContext"),
-        INJECTOR,
         objectMapper
     );
     final byte[] bytes = objectMapper.writeValueAsBytes(task);
@@ -288,7 +287,6 @@ public class CompactionTaskTest
         null,
         createTuningConfig(),
         ImmutableMap.of("testKey", "testContext"),
-        INJECTOR,
         objectMapper
     );
     final byte[] bytes = objectMapper.writeValueAsBytes(task);
@@ -310,7 +308,6 @@ public class CompactionTaskTest
         new SegmentProvider(DATA_SOURCE, COMPACTION_INTERVAL),
         null,
         TUNING_CONFIG,
-        INJECTOR,
         objectMapper
     );
     final DimensionsSpec expectedDimensionsSpec = getExpectedDimensionsSpecForAutoGeneration();
@@ -355,7 +352,6 @@ public class CompactionTaskTest
         new SegmentProvider(DATA_SOURCE, COMPACTION_INTERVAL),
         customSpec,
         TUNING_CONFIG,
-        INJECTOR,
         objectMapper
     );
 
@@ -370,7 +366,6 @@ public class CompactionTaskTest
         new SegmentProvider(SEGMENTS),
         null,
         TUNING_CONFIG,
-        INJECTOR,
         objectMapper
     );
     final DimensionsSpec expectedDimensionsSpec = getExpectedDimensionsSpecForAutoGeneration();
@@ -382,7 +377,7 @@ public class CompactionTaskTest
   public void testCreateIngestionSchemaWithDifferentSegmentSet() throws IOException, SegmentLoadingException
   {
     expectedException.expect(CoreMatchers.instanceOf(IllegalStateException.class));
-    expectedException.expectMessage(CoreMatchers.containsString("are different from the currently used segments"));
+    expectedException.expectMessage(CoreMatchers.containsString("are different from the current used segments"));
 
     final List<DataSegment> segments = new ArrayList<>(SEGMENTS);
     segments.remove(0);
@@ -391,7 +386,6 @@ public class CompactionTaskTest
         new SegmentProvider(segments),
         null,
         TUNING_CONFIG,
-        INJECTOR,
         objectMapper
     );
   }
@@ -507,7 +501,7 @@ public class CompactionTaskTest
           indexIO,
           null,
           null,
-          new IndexMergerV9(objectMapper, indexIO),
+          new IndexMergerV9(objectMapper, indexIO, OffHeapMemorySegmentWriteOutMediumFactory.instance()),
           null,
           null,
           null,
@@ -557,7 +551,7 @@ public class CompactionTaskTest
         Map<DataSegment, File> segmentFileMap
     )
     {
-      super(mapper, () -> 0);
+      super(mapper, OffHeapMemorySegmentWriteOutMediumFactory.instance(), () -> 0);
 
       queryableIndexMap = new HashMap<>(segmentFileMap.size());
       for (Entry<DataSegment, File> entry : segmentFileMap.entrySet()) {
