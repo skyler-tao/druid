@@ -28,24 +28,23 @@ import io.druid.collections.spatial.ImmutableRTree;
 import io.druid.io.Channels;
 import io.druid.java.util.common.IAE;
 import io.druid.java.util.common.io.smoosh.FileSmoosher;
-import io.druid.segment.CompressedVSizeIndexedSupplier;
-import io.druid.segment.CompressedVSizeIndexedV3Supplier;
 import io.druid.segment.column.ColumnBuilder;
 import io.druid.segment.column.ColumnConfig;
 import io.druid.segment.column.ValueType;
 import io.druid.segment.data.BitmapSerde;
 import io.druid.segment.data.BitmapSerdeFactory;
-import io.druid.segment.data.ByteBufferSerializer;
 import io.druid.segment.data.ByteBufferWriter;
-import io.druid.segment.data.CompressedVSizeIntsIndexedSupplier;
+import io.druid.segment.data.ColumnarInts;
+import io.druid.segment.data.ColumnarIntsSerializer;
+import io.druid.segment.data.ColumnarMultiInts;
+import io.druid.segment.data.CompressedVSizeColumnarIntsSupplier;
+import io.druid.segment.data.CompressedVSizeColumnarMultiIntsSupplier;
 import io.druid.segment.data.GenericIndexed;
 import io.druid.segment.data.GenericIndexedWriter;
 import io.druid.segment.data.ImmutableRTreeObjectStrategy;
-import io.druid.segment.data.IndexedInts;
-import io.druid.segment.data.IndexedIntsWriter;
-import io.druid.segment.data.IndexedMultivalue;
-import io.druid.segment.data.VSizeIndexed;
-import io.druid.segment.data.VSizeIndexedInts;
+import io.druid.segment.data.V3CompressedVSizeColumnarMultiIntsSupplier;
+import io.druid.segment.data.VSizeColumnarInts;
+import io.druid.segment.data.VSizeColumnarMultiInts;
 import io.druid.segment.data.WritableSupplier;
 
 import javax.annotation.Nullable;
@@ -59,11 +58,13 @@ import java.nio.channels.WritableByteChannel;
 public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
 {
   private static final int NO_FLAGS = 0;
+  private static final int STARTING_FLAGS = Feature.NO_BITMAP_INDEX.getMask();
 
   enum Feature
   {
     MULTI_VALUE,
-    MULTI_VALUE_V3;
+    MULTI_VALUE_V3,
+    NO_BITMAP_INDEX;
 
     public boolean isSet(int flags)
     {
@@ -80,8 +81,8 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
   {
     UNCOMPRESSED_SINGLE_VALUE,  // 0x0
     UNCOMPRESSED_MULTI_VALUE,   // 0x1
-    COMPRESSED;                 // 0x2
-
+    COMPRESSED,                 // 0x2
+    UNCOMPRESSED_WITH_FLAGS;    // 0x3
 
     public static VERSION fromByte(byte b)
     {
@@ -144,9 +145,9 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
   public static class SerializerBuilder
   {
     private VERSION version = null;
-    private int flags = NO_FLAGS;
+    private int flags = STARTING_FLAGS;
     private GenericIndexedWriter<String> dictionaryWriter = null;
-    private IndexedIntsWriter valueWriter = null;
+    private ColumnarIntsSerializer valueWriter = null;
     private BitmapSerdeFactory bitmapSerdeFactory = null;
     private GenericIndexedWriter<ImmutableBitmap> bitmapIndexWriter = null;
     private ByteBufferWriter<ImmutableRTree> spatialIndexWriter = null;
@@ -164,8 +165,14 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
       return this;
     }
 
-    public SerializerBuilder withBitmapIndex(GenericIndexedWriter<ImmutableBitmap> bitmapIndexWriter)
+    public SerializerBuilder withBitmapIndex(@Nullable GenericIndexedWriter<ImmutableBitmap> bitmapIndexWriter)
     {
+      if (bitmapIndexWriter == null) {
+        flags |= Feature.NO_BITMAP_INDEX.getMask();
+      } else {
+        flags &= ~Feature.NO_BITMAP_INDEX.getMask();
+      }
+
       this.bitmapIndexWriter = bitmapIndexWriter;
       return this;
     }
@@ -182,7 +189,7 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
       return this;
     }
 
-    public SerializerBuilder withValue(IndexedIntsWriter valueWriter, boolean hasMultiValue, boolean compressed)
+    public SerializerBuilder withValue(ColumnarIntsSerializer valueWriter, boolean hasMultiValue, boolean compressed)
     {
       this.valueWriter = valueWriter;
       if (hasMultiValue) {
@@ -205,6 +212,11 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
 
     public DictionaryEncodedColumnPartSerde build()
     {
+      if (mustWriteFlags(flags) && version.compareTo(VERSION.COMPRESSED) < 0) {
+        // Must upgrade version so we can write out flags.
+        this.version = VERSION.UNCOMPRESSED_WITH_FLAGS;
+      }
+
       return new DictionaryEncodedColumnPartSerde(
           byteOrder,
           bitmapSerdeFactory,
@@ -215,7 +227,7 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
             {
               long size = 1 + // version
                           (version.compareTo(VERSION.COMPRESSED) >= 0
-                           ? Ints.BYTES
+                           ? Integer.BYTES
                            : 0); // flag if version >= compressed
               if (dictionaryWriter != null) {
                 size += dictionaryWriter.getSerializedSize();
@@ -291,8 +303,8 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
         );
         builder.setType(ValueType.STRING);
 
-        final WritableSupplier<IndexedInts> rSingleValuedColumn;
-        final WritableSupplier<IndexedMultivalue<IndexedInts>> rMultiValuedColumn;
+        final WritableSupplier<ColumnarInts> rSingleValuedColumn;
+        final WritableSupplier<ColumnarMultiInts> rMultiValuedColumn;
 
         if (hasMultipleValues) {
           rMultiValuedColumn = readMultiValuedColumn(rVersion, buffer, rFlags);
@@ -310,55 +322,64 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
         );
         builder.setHasMultipleValues(hasMultipleValues).setDictionaryEncodedColumn(dictionaryEncodedColumnSupplier);
 
-        GenericIndexed<ImmutableBitmap> rBitmaps = GenericIndexed.read(
-            buffer, bitmapSerdeFactory.getObjectStrategy(), builder.getFileMapper()
-        );
-        builder.setBitmapIndex(
-            new BitmapIndexColumnPartSupplier(
-                bitmapSerdeFactory.getBitmapFactory(),
-                rBitmaps,
-                rDictionary
-            )
-        );
-
-        ImmutableRTree rSpatialIndex = null;
-        if (buffer.hasRemaining()) {
-          rSpatialIndex = ByteBufferSerializer.read(
+        if (!Feature.NO_BITMAP_INDEX.isSet(rFlags)) {
+          GenericIndexed<ImmutableBitmap> rBitmaps = GenericIndexed.read(
               buffer,
-              new ImmutableRTreeObjectStrategy(bitmapSerdeFactory.getBitmapFactory())
+              bitmapSerdeFactory.getObjectStrategy(),
+              builder.getFileMapper()
           );
+          builder.setBitmapIndex(
+              new BitmapIndexColumnPartSupplier(
+                  bitmapSerdeFactory.getBitmapFactory(),
+                  rBitmaps,
+                  rDictionary
+              )
+          );
+        }
+
+        if (buffer.hasRemaining()) {
+          ImmutableRTree rSpatialIndex =
+              new ImmutableRTreeObjectStrategy(bitmapSerdeFactory.getBitmapFactory()).fromByteBufferWithSize(buffer);
           builder.setSpatialIndex(new SpatialIndexColumnPartSupplier(rSpatialIndex));
         }
       }
 
 
-      private WritableSupplier<IndexedInts> readSingleValuedColumn(VERSION version, ByteBuffer buffer)
+      private WritableSupplier<ColumnarInts> readSingleValuedColumn(VERSION version, ByteBuffer buffer)
       {
         switch (version) {
           case UNCOMPRESSED_SINGLE_VALUE:
-            return VSizeIndexedInts.readFromByteBuffer(buffer);
+          case UNCOMPRESSED_WITH_FLAGS:
+            return VSizeColumnarInts.readFromByteBuffer(buffer);
           case COMPRESSED:
-            return CompressedVSizeIntsIndexedSupplier.fromByteBuffer(buffer, byteOrder);
+            return CompressedVSizeColumnarIntsSupplier.fromByteBuffer(buffer, byteOrder);
           default:
             throw new IAE("Unsupported single-value version[%s]", version);
         }
       }
 
-      private WritableSupplier<IndexedMultivalue<IndexedInts>> readMultiValuedColumn(
+      private WritableSupplier<ColumnarMultiInts> readMultiValuedColumn(
           VERSION version, ByteBuffer buffer, int flags
       )
       {
         switch (version) {
           case UNCOMPRESSED_MULTI_VALUE: {
-            return VSizeIndexed.readFromByteBuffer(buffer);
+            return VSizeColumnarMultiInts.readFromByteBuffer(buffer);
+          }
+          case UNCOMPRESSED_WITH_FLAGS: {
+            if (Feature.MULTI_VALUE.isSet(flags)) {
+              return VSizeColumnarMultiInts.readFromByteBuffer(buffer);
+            } else {
+              throw new IAE("Unrecognized multi-value flag[%d] for version[%s]", flags, version);
+            }
           }
           case COMPRESSED: {
             if (Feature.MULTI_VALUE.isSet(flags)) {
-              return CompressedVSizeIndexedSupplier.fromByteBuffer(buffer, byteOrder);
+              return CompressedVSizeColumnarMultiIntsSupplier.fromByteBuffer(buffer, byteOrder);
             } else if (Feature.MULTI_VALUE_V3.isSet(flags)) {
-              return CompressedVSizeIndexedV3Supplier.fromByteBuffer(buffer, byteOrder);
+              return V3CompressedVSizeColumnarMultiIntsSupplier.fromByteBuffer(buffer, byteOrder);
             } else {
-              throw new IAE("Unrecognized multi-value flag[%d]", flags);
+              throw new IAE("Unrecognized multi-value flag[%d] for version[%s]", flags, version);
             }
           }
           default:
@@ -366,5 +387,11 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
         }
       }
     };
+  }
+
+  private static boolean mustWriteFlags(final int flags)
+  {
+    // Flags that are not implied by version codes < COMPRESSED must be written. This includes MULTI_VALUE_V3.
+    return flags != NO_FLAGS && flags != Feature.MULTI_VALUE.getMask();
   }
 }

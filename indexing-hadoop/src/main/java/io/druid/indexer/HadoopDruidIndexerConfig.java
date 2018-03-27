@@ -50,7 +50,6 @@ import io.druid.java.util.common.StringUtils;
 import io.druid.java.util.common.granularity.Granularity;
 import io.druid.java.util.common.guava.FunctionalIterable;
 import io.druid.java.util.common.jackson.JacksonUtils;
-import io.druid.java.util.common.logger.Logger;
 import io.druid.segment.IndexIO;
 import io.druid.segment.IndexMerger;
 import io.druid.segment.IndexMergerV9;
@@ -85,7 +84,6 @@ import java.util.SortedSet;
  */
 public class HadoopDruidIndexerConfig
 {
-  private static final Logger log = new Logger(HadoopDruidIndexerConfig.class);
   private static final Injector injector;
 
   public static final String CONFIG_PROPERTY = "druid.indexer.config";
@@ -573,13 +571,6 @@ public class HadoopDruidIndexerConfig
 
   public void verify()
   {
-    try {
-      log.info("Running with config:%n%s", JSON_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(this));
-    }
-    catch (IOException e) {
-      throw Throwables.propagate(e);
-    }
-
     Preconditions.checkNotNull(schema.getDataSchema().getDataSource(), "dataSource");
     Preconditions.checkNotNull(schema.getDataSchema().getParser().getParseSpec(), "parseSpec");
     Preconditions.checkNotNull(schema.getDataSchema().getParser().getParseSpec().getTimestampSpec(), "timestampSpec");

@@ -41,8 +41,7 @@ public interface IndexerMetadataStorageCoordinator
    *
    * @throws IOException
    */
-  List<DataSegment> getUsedSegmentsForInterval(String dataSource, Interval interval)
-      throws IOException;
+  List<DataSegment> getUsedSegmentsForInterval(String dataSource, Interval interval);
 
   /**
    * Get all segments which may include any data in the interval and are flagged as used.
@@ -54,8 +53,7 @@ public interface IndexerMetadataStorageCoordinator
    *
    * @throws IOException
    */
-  List<DataSegment> getUsedSegmentsForIntervals(String dataSource, List<Interval> intervals)
-      throws IOException;
+  List<DataSegment> getUsedSegmentsForIntervals(String dataSource, List<Interval> intervals);
 
   /**
    * Attempts to insert a set of segments to the metadata storage. Returns the set of segments actually added (segments
@@ -94,7 +92,18 @@ public interface IndexerMetadataStorageCoordinator
       Interval interval,
       String maxVersion,
       boolean skipSegmentLineageCheck
-  ) throws IOException;
+  );
+
+  /**
+   * Delete pending segments created in the given interval for the given dataSource from the pending segments table.
+   * The {@code created_date} field of the pending segments table is checked to find segments to be deleted.
+   *
+   * @param dataSource     dataSource
+   * @param deleteInterval interval to check the {@code created_date} of pendingSegments
+   *
+   * @return number of deleted pending segments
+   */
+  int deletePendingSegments(String dataSource, Interval deleteInterval);
 
   /**
    * Attempts to insert a set of segments to the metadata storage. Returns the set of segments actually added (segments
@@ -121,6 +130,9 @@ public interface IndexerMetadataStorageCoordinator
       DataSourceMetadata endMetadata
   ) throws IOException;
 
+  /**
+   * Read dataSource metadata. Returns null if there is no metadata.
+   */
   DataSourceMetadata getDataSourceMetadata(String dataSource);
 
   /**
@@ -142,9 +154,9 @@ public interface IndexerMetadataStorageCoordinator
    */
   boolean resetDataSourceMetadata(String dataSource, DataSourceMetadata dataSourceMetadata) throws IOException;
 
-  void updateSegmentMetadata(Set<DataSegment> segments) throws IOException;
+  void updateSegmentMetadata(Set<DataSegment> segments);
 
-  void deleteSegments(Set<DataSegment> segments) throws IOException;
+  void deleteSegments(Set<DataSegment> segments);
 
   /**
    * Get all segments which include ONLY data within the given interval and are not flagged as used.

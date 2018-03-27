@@ -22,12 +22,12 @@ package io.druid.segment.serde;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Supplier;
-import io.druid.segment.DoubleColumnSerializer;
+import io.druid.segment.IndexIO;
 import io.druid.segment.column.ColumnBuilder;
 import io.druid.segment.column.ColumnConfig;
 import io.druid.segment.column.ValueType;
-import io.druid.segment.data.CompressedDoublesIndexedSupplier;
-import io.druid.segment.data.IndexedDoubles;
+import io.druid.segment.data.CompressedColumnarDoublesSuppliers;
+import io.druid.segment.data.ColumnarDoubles;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -65,7 +65,7 @@ public class DoubleGenericColumnPartSerde implements ColumnPartSerde
   public static class SerializerBuilder
   {
     private ByteOrder byteOrder = null;
-    private DoubleColumnSerializer delegate = null;
+    private Serializer delegate = null;
 
     public SerializerBuilder withByteOrder(final ByteOrder byteOrder)
     {
@@ -73,7 +73,7 @@ public class DoubleGenericColumnPartSerde implements ColumnPartSerde
       return this;
     }
 
-    public SerializerBuilder withDelegate(final DoubleColumnSerializer delegate)
+    public SerializerBuilder withDelegate(final Serializer delegate)
     {
       this.delegate = delegate;
       return this;
@@ -99,13 +99,14 @@ public class DoubleGenericColumnPartSerde implements ColumnPartSerde
       @Override
       public void read(ByteBuffer buffer, ColumnBuilder builder, ColumnConfig columnConfig)
       {
-        final Supplier<IndexedDoubles> column = CompressedDoublesIndexedSupplier.fromByteBuffer(
+        final Supplier<ColumnarDoubles> column = CompressedColumnarDoublesSuppliers.fromByteBuffer(
             buffer,
             byteOrder
         );
         builder.setType(ValueType.DOUBLE)
                .setHasMultipleValues(false)
-               .setGenericColumn(new DoubleGenericColumnSupplier(column));
+               .setGenericColumn(new DoubleGenericColumnSupplier(column, IndexIO.LEGACY_FACTORY.getBitmapFactory()
+                                                                                             .makeEmptyImmutableBitmap()));
 
       }
     };

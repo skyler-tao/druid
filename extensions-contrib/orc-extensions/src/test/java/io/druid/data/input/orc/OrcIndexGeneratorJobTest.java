@@ -85,7 +85,7 @@ import java.util.zip.ZipInputStream;
 
 public class OrcIndexGeneratorJobTest
 {
-  static private final AggregatorFactory[] aggs = {
+  private static final AggregatorFactory[] aggs = {
       new LongSumAggregatorFactory("visited_num", "visited_num"),
       new HyperUniquesAggregatorFactory("unique_hosts", "host")
   };
@@ -134,7 +134,8 @@ public class OrcIndexGeneratorJobTest
           new TimestampSpec("timestamp", "yyyyMMddHH", null),
           new DimensionsSpec(DimensionsSpec.getDefaultSchemas(ImmutableList.of("host")), null, null)
       ),
-      "struct<timestamp:string,host:string,visited_num:int>"
+      "struct<timestamp:string,host:string,visited_num:int>",
+      null
   );
 
   private File writeDataToLocalOrcFile(File outputDir, List<String> data) throws IOException
@@ -306,7 +307,7 @@ public class OrcIndexGeneratorJobTest
         QueryableIndex index = HadoopDruidIndexerConfig.INDEX_IO.loadIndex(dir);
         QueryableIndexIndexableAdapter adapter = new QueryableIndexIndexableAdapter(index);
 
-        for (Rowboat row: adapter.getRows()) {
+        for (Rowboat row : adapter.getRows()) {
           Object[] metrics = row.getMetrics();
 
           rowCount++;

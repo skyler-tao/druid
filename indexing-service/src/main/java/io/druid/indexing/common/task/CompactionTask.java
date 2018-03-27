@@ -278,7 +278,7 @@ public class CompactionTask extends AbstractTask
       List<TimelineObjectHolder<String, DataSegment>> timelineSegments,
       Map<DataSegment, File> segmentFileMap
   )
-      throws IOException, SegmentLoadingException
+      throws IOException
   {
     // find metadata for interval
     final List<QueryableIndex> queryableIndices = loadSegments(timelineSegments, segmentFileMap, indexIO);
@@ -354,7 +354,8 @@ public class CompactionTask extends AbstractTask
               createDimensionSchema(
                   column.getCapabilities().getType(),
                   dimension,
-                  dimensionHandler.getMultivalueHandling()
+                  dimensionHandler.getMultivalueHandling(),
+                  column.getCapabilities().hasBitmapIndexes()
               )
           );
         }
@@ -402,7 +403,8 @@ public class CompactionTask extends AbstractTask
   private static DimensionSchema createDimensionSchema(
       ValueType type,
       String name,
-      MultiValueHandling multiValueHandling
+      MultiValueHandling multiValueHandling,
+      boolean hasBitmapIndexes
   )
   {
     switch (type) {
@@ -428,7 +430,7 @@ public class CompactionTask extends AbstractTask
         );
         return new DoubleDimensionSchema(name);
       case STRING:
-        return new StringDimensionSchema(name, multiValueHandling);
+        return new StringDimensionSchema(name, multiValueHandling, hasBitmapIndexes);
       default:
         throw new ISE("Unsupported value type[%s] for dimension[%s]", type, name);
     }
@@ -475,12 +477,21 @@ public class CompactionTask extends AbstractTask
       if (segments != null) {
         Collections.sort(usedSegments);
         Collections.sort(segments);
-        Preconditions.checkState(
-            usedSegments.equals(segments),
-            "Specified segments[%s] are different from the current used segments[%s]",
-            segments,
-            usedSegments
-        );
+
+        if (!usedSegments.equals(segments)) {
+          final List<DataSegment> unknownSegments = segments.stream()
+                                                            .filter(segment -> !usedSegments.contains(segment))
+                                                            .collect(Collectors.toList());
+          final List<DataSegment> missingSegments = usedSegments.stream()
+                                                                .filter(segment -> !segments.contains(segment))
+                                                                .collect(Collectors.toList());
+          throw new ISE(
+              "Specified segments in the spec are different from the current used segments. "
+              + "There are unknown segments[%s] and missing segments[%s] in the spec.",
+              unknownSegments,
+              missingSegments
+          );
+        }
       }
       return usedSegments;
     }

@@ -36,18 +36,16 @@ import io.druid.collections.BlockingPool;
 import io.druid.collections.DefaultBlockingPool;
 import io.druid.collections.NonBlockingPool;
 import io.druid.collections.StupidPool;
-import io.druid.java.util.common.concurrent.Execs;
 import io.druid.data.input.InputRow;
 import io.druid.data.input.Row;
 import io.druid.hll.HyperLogLogHash;
 import io.druid.jackson.DefaultObjectMapper;
+import io.druid.java.util.common.concurrent.Execs;
 import io.druid.java.util.common.granularity.Granularities;
 import io.druid.java.util.common.granularity.Granularity;
 import io.druid.java.util.common.guava.Sequence;
-import io.druid.java.util.common.guava.Sequences;
 import io.druid.java.util.common.logger.Logger;
 import io.druid.offheap.OffheapBufferGenerator;
-import io.druid.segment.writeout.OffHeapMemorySegmentWriteOutMediumFactory;
 import io.druid.query.DruidProcessingConfig;
 import io.druid.query.FinalizeResultsQueryRunner;
 import io.druid.query.Query;
@@ -84,6 +82,7 @@ import io.druid.segment.column.ValueType;
 import io.druid.segment.incremental.IncrementalIndex;
 import io.druid.segment.incremental.IncrementalIndexSchema;
 import io.druid.segment.serde.ComplexMetrics;
+import io.druid.segment.writeout.OffHeapMemorySegmentWriteOutMediumFactory;
 import org.apache.commons.io.FileUtils;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -577,13 +576,13 @@ public class GroupByBenchmark
     );
 
     Sequence<T> queryResult = theRunner.run(QueryPlus.wrap(query), Maps.<String, Object>newHashMap());
-    return Sequences.toList(queryResult, Lists.<T>newArrayList());
+    return queryResult.toList();
   }
 
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void querySingleIncrementalIndex(Blackhole blackhole) throws Exception
+  public void querySingleIncrementalIndex(Blackhole blackhole)
   {
     QueryRunner<Row> runner = QueryBenchmarkUtil.makeQueryRunner(
         factory,
@@ -601,7 +600,7 @@ public class GroupByBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void querySingleQueryableIndex(Blackhole blackhole) throws Exception
+  public void querySingleQueryableIndex(Blackhole blackhole)
   {
     QueryRunner<Row> runner = QueryBenchmarkUtil.makeQueryRunner(
         factory,
@@ -619,7 +618,7 @@ public class GroupByBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void queryMultiQueryableIndex(Blackhole blackhole) throws Exception
+  public void queryMultiQueryableIndex(Blackhole blackhole)
   {
     QueryToolChest<Row, GroupByQuery> toolChest = factory.getToolchest();
     QueryRunner<Row> theRunner = new FinalizeResultsQueryRunner<>(
@@ -630,7 +629,7 @@ public class GroupByBenchmark
     );
 
     Sequence<Row> queryResult = theRunner.run(QueryPlus.wrap(query), Maps.newHashMap());
-    List<Row> results = Sequences.toList(queryResult, Lists.<Row>newArrayList());
+    List<Row> results = queryResult.toList();
 
     for (Row result : results) {
       blackhole.consume(result);
@@ -640,7 +639,7 @@ public class GroupByBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void queryMultiQueryableIndexWithSpilling(Blackhole blackhole) throws Exception
+  public void queryMultiQueryableIndexWithSpilling(Blackhole blackhole)
   {
     QueryToolChest<Row, GroupByQuery> toolChest = factory.getToolchest();
     QueryRunner<Row> theRunner = new FinalizeResultsQueryRunner<>(
@@ -654,7 +653,7 @@ public class GroupByBenchmark
         ImmutableMap.<String, Object>of("bufferGrouperMaxSize", 4000)
     );
     Sequence<Row> queryResult = theRunner.run(QueryPlus.wrap(spillingQuery), Maps.newHashMap());
-    List<Row> results = Sequences.toList(queryResult, Lists.<Row>newArrayList());
+    List<Row> results = queryResult.toList();
 
     for (Row result : results) {
       blackhole.consume(result);
@@ -664,7 +663,7 @@ public class GroupByBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void queryMultiQueryableIndexWithSerde(Blackhole blackhole) throws Exception
+  public void queryMultiQueryableIndexWithSerde(Blackhole blackhole)
   {
     QueryToolChest<Row, GroupByQuery> toolChest = factory.getToolchest();
     QueryRunner<Row> theRunner = new FinalizeResultsQueryRunner<>(
@@ -681,7 +680,7 @@ public class GroupByBenchmark
     );
 
     Sequence<Row> queryResult = theRunner.run(QueryPlus.wrap(query), Maps.<String, Object>newHashMap());
-    List<Row> results = Sequences.toList(queryResult, Lists.<Row>newArrayList());
+    List<Row> results = queryResult.toList();
 
     for (Row result : results) {
       blackhole.consume(result);

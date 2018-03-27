@@ -23,7 +23,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
 import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import com.google.common.io.Files;
 import io.druid.benchmark.datagen.BenchmarkDataGenerator;
 import io.druid.benchmark.datagen.BenchmarkSchemaInfo;
@@ -36,7 +35,6 @@ import io.druid.java.util.common.guava.Sequence;
 import io.druid.java.util.common.guava.Sequences;
 import io.druid.java.util.common.logger.Logger;
 import io.druid.js.JavaScriptConfig;
-import io.druid.segment.writeout.OffHeapMemorySegmentWriteOutMediumFactory;
 import io.druid.query.aggregation.hyperloglog.HyperUniquesSerde;
 import io.druid.query.dimension.DefaultDimensionSpec;
 import io.druid.query.extraction.ExtractionFn;
@@ -74,6 +72,7 @@ import io.druid.segment.filter.OrFilter;
 import io.druid.segment.filter.SelectorFilter;
 import io.druid.segment.incremental.IncrementalIndex;
 import io.druid.segment.serde.ComplexMetrics;
+import io.druid.segment.writeout.OffHeapMemorySegmentWriteOutMediumFactory;
 import org.apache.commons.io.FileUtils;
 import org.joda.time.Interval;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -239,13 +238,13 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void stringRead(Blackhole blackhole) throws Exception
+  public void stringRead(Blackhole blackhole)
   {
     StorageAdapter sa = new QueryableIndexStorageAdapter(qIndex);
     Sequence<Cursor> cursors = makeCursors(sa, null);
 
     Sequence<List<String>> stringListSeq = readCursors(cursors, blackhole);
-    List<String> strings = Sequences.toList(Sequences.limit(stringListSeq, 1), Lists.<List<String>>newArrayList()).get(0);
+    List<String> strings = stringListSeq.limit(1).toList().get(0);
     for (String st : strings) {
       blackhole.consume(st);
     }
@@ -254,13 +253,13 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void longRead(Blackhole blackhole) throws Exception
+  public void longRead(Blackhole blackhole)
   {
     StorageAdapter sa = new QueryableIndexStorageAdapter(qIndex);
     Sequence<Cursor> cursors = makeCursors(sa, null);
 
     Sequence<List<Long>> longListSeq = readCursorsLong(cursors, blackhole);
-    List<Long> strings = Sequences.toList(Sequences.limit(longListSeq, 1), Lists.<List<Long>>newArrayList()).get(0);
+    List<Long> strings = longListSeq.limit(1).toList().get(0);
     for (Long st : strings) {
       blackhole.consume(st);
     }
@@ -269,13 +268,13 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void timeFilterNone(Blackhole blackhole) throws Exception
+  public void timeFilterNone(Blackhole blackhole)
   {
     StorageAdapter sa = new QueryableIndexStorageAdapter(qIndex);
     Sequence<Cursor> cursors = makeCursors(sa, timeFilterNone);
 
     Sequence<List<Long>> longListSeq = readCursorsLong(cursors, blackhole);
-    List<Long> strings = Sequences.toList(Sequences.limit(longListSeq, 1), Lists.<List<Long>>newArrayList()).get(0);
+    List<Long> strings = longListSeq.limit(1).toList().get(0);
     for (Long st : strings) {
       blackhole.consume(st);
     }
@@ -284,13 +283,13 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void timeFilterHalf(Blackhole blackhole) throws Exception
+  public void timeFilterHalf(Blackhole blackhole)
   {
     StorageAdapter sa = new QueryableIndexStorageAdapter(qIndex);
     Sequence<Cursor> cursors = makeCursors(sa, timeFilterHalf);
 
     Sequence<List<Long>> longListSeq = readCursorsLong(cursors, blackhole);
-    List<Long> strings = Sequences.toList(Sequences.limit(longListSeq, 1), Lists.<List<Long>>newArrayList()).get(0);
+    List<Long> strings = longListSeq.limit(1).toList().get(0);
     for (Long st : strings) {
       blackhole.consume(st);
     }
@@ -299,13 +298,13 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void timeFilterAll(Blackhole blackhole) throws Exception
+  public void timeFilterAll(Blackhole blackhole)
   {
     StorageAdapter sa = new QueryableIndexStorageAdapter(qIndex);
     Sequence<Cursor> cursors = makeCursors(sa, timeFilterAll);
 
     Sequence<List<Long>> longListSeq = readCursorsLong(cursors, blackhole);
-    List<Long> strings = Sequences.toList(Sequences.limit(longListSeq, 1), Lists.<List<Long>>newArrayList()).get(0);
+    List<Long> strings = longListSeq.limit(1).toList().get(0);
     for (Long st : strings) {
       blackhole.consume(st);
     }
@@ -314,7 +313,7 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void readWithPreFilter(Blackhole blackhole) throws Exception
+  public void readWithPreFilter(Blackhole blackhole)
   {
     Filter filter = new SelectorFilter("dimSequential", "199");
 
@@ -322,7 +321,7 @@ public class FilterPartitionBenchmark
     Sequence<Cursor> cursors = makeCursors(sa, filter);
 
     Sequence<List<String>> stringListSeq = readCursors(cursors, blackhole);
-    List<String> strings = Sequences.toList(Sequences.limit(stringListSeq, 1), Lists.<List<String>>newArrayList()).get(0);
+    List<String> strings = stringListSeq.limit(1).toList().get(0);
     for (String st : strings) {
       blackhole.consume(st);
     }
@@ -331,7 +330,7 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void readWithPostFilter(Blackhole blackhole) throws Exception
+  public void readWithPostFilter(Blackhole blackhole)
   {
     Filter filter = new NoBitmapSelectorFilter("dimSequential", "199");
 
@@ -339,7 +338,7 @@ public class FilterPartitionBenchmark
     Sequence<Cursor> cursors = makeCursors(sa, filter);
 
     Sequence<List<String>> stringListSeq = readCursors(cursors, blackhole);
-    List<String> strings = Sequences.toList(Sequences.limit(stringListSeq, 1), Lists.<List<String>>newArrayList()).get(0);
+    List<String> strings = stringListSeq.limit(1).toList().get(0);
     for (String st : strings) {
       blackhole.consume(st);
     }
@@ -348,7 +347,7 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void readWithExFnPreFilter(Blackhole blackhole) throws Exception
+  public void readWithExFnPreFilter(Blackhole blackhole)
   {
     Filter filter = new SelectorDimFilter("dimSequential", "super-199", JS_EXTRACTION_FN).toFilter();
 
@@ -356,7 +355,7 @@ public class FilterPartitionBenchmark
     Sequence<Cursor> cursors = makeCursors(sa, filter);
 
     Sequence<List<String>> stringListSeq = readCursors(cursors, blackhole);
-    List<String> strings = Sequences.toList(Sequences.limit(stringListSeq, 1), Lists.<List<String>>newArrayList()).get(0);
+    List<String> strings = stringListSeq.limit(1).toList().get(0);
     for (String st : strings) {
       blackhole.consume(st);
     }
@@ -365,7 +364,7 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void readWithExFnPostFilter(Blackhole blackhole) throws Exception
+  public void readWithExFnPostFilter(Blackhole blackhole)
   {
     Filter filter = new NoBitmapSelectorDimFilter("dimSequential", "super-199", JS_EXTRACTION_FN).toFilter();
 
@@ -373,7 +372,7 @@ public class FilterPartitionBenchmark
     Sequence<Cursor> cursors = makeCursors(sa, filter);
 
     Sequence<List<String>> stringListSeq = readCursors(cursors, blackhole);
-    List<String> strings = Sequences.toList(Sequences.limit(stringListSeq, 1), Lists.<List<String>>newArrayList()).get(0);
+    List<String> strings = stringListSeq.limit(1).toList().get(0);
     for (String st : strings) {
       blackhole.consume(st);
     }
@@ -382,7 +381,7 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void readOrFilter(Blackhole blackhole) throws Exception
+  public void readOrFilter(Blackhole blackhole)
   {
     Filter filter = new NoBitmapSelectorFilter("dimSequential", "199");
     Filter filter2 = new AndFilter(Arrays.<Filter>asList(new SelectorFilter("dimMultivalEnumerated2", "Corundum"), new NoBitmapSelectorFilter("dimMultivalEnumerated", "Bar")));
@@ -392,7 +391,7 @@ public class FilterPartitionBenchmark
     Sequence<Cursor> cursors = makeCursors(sa, orFilter);
 
     Sequence<List<String>> stringListSeq = readCursors(cursors, blackhole);
-    List<String> strings = Sequences.toList(Sequences.limit(stringListSeq, 1), Lists.<List<String>>newArrayList()).get(0);
+    List<String> strings = stringListSeq.limit(1).toList().get(0);
     for (String st : strings) {
       blackhole.consume(st);
     }
@@ -401,7 +400,7 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void readOrFilterCNF(Blackhole blackhole) throws Exception
+  public void readOrFilterCNF(Blackhole blackhole)
   {
     Filter filter = new NoBitmapSelectorFilter("dimSequential", "199");
     Filter filter2 = new AndFilter(Arrays.<Filter>asList(new SelectorFilter("dimMultivalEnumerated2", "Corundum"), new NoBitmapSelectorFilter("dimMultivalEnumerated", "Bar")));
@@ -411,7 +410,7 @@ public class FilterPartitionBenchmark
     Sequence<Cursor> cursors = makeCursors(sa, Filters.convertToCNF(orFilter));
 
     Sequence<List<String>> stringListSeq = readCursors(cursors, blackhole);
-    List<String> strings = Sequences.toList(Sequences.limit(stringListSeq, 1), Lists.<List<String>>newArrayList()).get(0);
+    List<String> strings = stringListSeq.limit(1).toList().get(0);
     for (String st : strings) {
       blackhole.consume(st);
     }
@@ -420,7 +419,7 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void readComplexOrFilter(Blackhole blackhole) throws Exception
+  public void readComplexOrFilter(Blackhole blackhole)
   {
     DimFilter dimFilter1 = new OrDimFilter(Arrays.<DimFilter>asList(
         new SelectorDimFilter("dimSequential", "199", null),
@@ -453,7 +452,7 @@ public class FilterPartitionBenchmark
     Sequence<Cursor> cursors = makeCursors(sa, dimFilter3.toFilter());
 
     Sequence<List<String>> stringListSeq = readCursors(cursors, blackhole);
-    List<String> strings = Sequences.toList(Sequences.limit(stringListSeq, 1), Lists.<List<String>>newArrayList()).get(0);
+    List<String> strings = stringListSeq.limit(1).toList().get(0);
     for (String st : strings) {
       blackhole.consume(st);
     }
@@ -462,7 +461,7 @@ public class FilterPartitionBenchmark
   @Benchmark
   @BenchmarkMode(Mode.AverageTime)
   @OutputTimeUnit(TimeUnit.MICROSECONDS)
-  public void readComplexOrFilterCNF(Blackhole blackhole) throws Exception
+  public void readComplexOrFilterCNF(Blackhole blackhole)
   {
     DimFilter dimFilter1 = new OrDimFilter(Arrays.<DimFilter>asList(
         new SelectorDimFilter("dimSequential", "199", null),
@@ -495,7 +494,7 @@ public class FilterPartitionBenchmark
     Sequence<Cursor> cursors = makeCursors(sa, Filters.convertToCNF(dimFilter3.toFilter()));
 
     Sequence<List<String>> stringListSeq = readCursors(cursors, blackhole);
-    List<String> strings = Sequences.toList(Sequences.limit(stringListSeq, 1), Lists.<List<String>>newArrayList()).get(0);
+    List<String> strings = stringListSeq.limit(1).toList().get(0);
     for (String st : strings) {
       blackhole.consume(st);
     }

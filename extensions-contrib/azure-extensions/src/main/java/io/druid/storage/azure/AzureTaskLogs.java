@@ -33,7 +33,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URISyntaxException;
-import java.util.concurrent.Callable;
 
 public class AzureTaskLogs implements TaskLogs
 {
@@ -51,15 +50,15 @@ public class AzureTaskLogs implements TaskLogs
   }
 
   @Override
-  public void pushTaskLog(final String taskid, final File logFile) throws IOException
+  public void pushTaskLog(final String taskid, final File logFile)
   {
     final String taskKey = getTaskLogKey(taskid);
     log.info("Pushing task log %s to: %s", logFile, taskKey);
 
     try {
       AzureUtils.retryAzureOperation(
-          (Callable<Void>) () -> {
-            azureStorage.uploadBlob(logFile, config.getContainer(), taskKey);
+          () -> {
+            azureStorage.uploadBlob(logFile, config.getContainer(), taskKey, true);
             return null;
           },
           config.getMaxTries()
@@ -124,13 +123,13 @@ public class AzureTaskLogs implements TaskLogs
   }
 
   @Override
-  public void killAll() throws IOException
+  public void killAll()
   {
     throw new UnsupportedOperationException("not implemented");
   }
 
   @Override
-  public void killOlderThan(long timestamp) throws IOException
+  public void killOlderThan(long timestamp)
   {
     throw new UnsupportedOperationException("not implemented");
   }

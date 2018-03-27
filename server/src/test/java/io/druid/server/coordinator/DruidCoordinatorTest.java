@@ -110,11 +110,18 @@ public class DruidCoordinatorTest extends CuratorTestBase
     configManager = EasyMock.createNiceMock(JacksonConfigManager.class);
     EasyMock.expect(
         configManager.watch(
-            EasyMock.anyString(),
+            EasyMock.eq(CoordinatorDynamicConfig.CONFIG_KEY),
             EasyMock.anyObject(Class.class),
             EasyMock.anyObject()
         )
-    ).andReturn(new AtomicReference(new CoordinatorDynamicConfig.Builder().build())).anyTimes();
+    ).andReturn(new AtomicReference(CoordinatorDynamicConfig.builder().build())).anyTimes();
+    EasyMock.expect(
+        configManager.watch(
+            EasyMock.eq(CoordinatorCompactionConfig.CONFIG_KEY),
+            EasyMock.anyObject(Class.class),
+            EasyMock.anyObject()
+        )
+    ).andReturn(new AtomicReference(CoordinatorCompactionConfig.empty())).anyTimes();
     EasyMock.replay(configManager);
     setupServerAndCurator();
     curator.start();
@@ -215,7 +222,7 @@ public class DruidCoordinatorTest extends CuratorTestBase
   }
 
   @Test
-  public void testMoveSegment() throws Exception
+  public void testMoveSegment()
   {
     segment = EasyMock.createNiceMock(DataSegment.class);
     EasyMock.expect(segment.getIdentifier()).andReturn("dummySegment");
@@ -359,7 +366,7 @@ public class DruidCoordinatorTest extends CuratorTestBase
           @Override
           public void childEvent(
               CuratorFramework curatorFramework, PathChildrenCacheEvent pathChildrenCacheEvent
-          ) throws Exception
+          )
           {
             if (pathChildrenCacheEvent.getType().equals(PathChildrenCacheEvent.Type.CHILD_ADDED)) {
               if (assignSegmentLatch.getCount() > 0) {

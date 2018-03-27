@@ -21,11 +21,11 @@ package io.druid.segment.serde;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.druid.segment.LongColumnSerializer;
+import io.druid.segment.IndexIO;
 import io.druid.segment.column.ColumnBuilder;
 import io.druid.segment.column.ColumnConfig;
 import io.druid.segment.column.ValueType;
-import io.druid.segment.data.CompressedLongsIndexedSupplier;
+import io.druid.segment.data.CompressedColumnarLongsSupplier;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -65,7 +65,7 @@ public class LongGenericColumnPartSerde implements ColumnPartSerde
   public static class SerializerBuilder
   {
     private ByteOrder byteOrder = null;
-    private LongColumnSerializer delegate = null;
+    private Serializer delegate = null;
 
     public SerializerBuilder withByteOrder(final ByteOrder byteOrder)
     {
@@ -73,7 +73,7 @@ public class LongGenericColumnPartSerde implements ColumnPartSerde
       return this;
     }
 
-    public SerializerBuilder withDelegate(final LongColumnSerializer delegate)
+    public SerializerBuilder withDelegate(final Serializer delegate)
     {
       this.delegate = delegate;
       return this;
@@ -99,13 +99,17 @@ public class LongGenericColumnPartSerde implements ColumnPartSerde
       @Override
       public void read(ByteBuffer buffer, ColumnBuilder builder, ColumnConfig columnConfig)
       {
-        final CompressedLongsIndexedSupplier column = CompressedLongsIndexedSupplier.fromByteBuffer(
+        final CompressedColumnarLongsSupplier column = CompressedColumnarLongsSupplier.fromByteBuffer(
             buffer,
             byteOrder
         );
         builder.setType(ValueType.LONG)
                .setHasMultipleValues(false)
-               .setGenericColumn(new LongGenericColumnSupplier(column));
+               .setGenericColumn(new LongGenericColumnSupplier(
+                   column,
+                   IndexIO.LEGACY_FACTORY.getBitmapFactory()
+                                         .makeEmptyImmutableBitmap()
+               ));
       }
     };
   }

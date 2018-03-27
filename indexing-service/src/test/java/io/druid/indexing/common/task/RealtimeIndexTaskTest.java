@@ -30,10 +30,6 @@ import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.metamx.emitter.EmittingLogger;
-import com.metamx.emitter.core.NoopEmitter;
-import com.metamx.emitter.service.ServiceEmitter;
-import com.metamx.metrics.MonitorScheduler;
 import io.druid.client.cache.CacheConfig;
 import io.druid.client.cache.MapCache;
 import io.druid.data.input.Firehose;
@@ -47,6 +43,7 @@ import io.druid.data.input.impl.TimestampSpec;
 import io.druid.discovery.DataNodeService;
 import io.druid.discovery.DruidNodeAnnouncer;
 import io.druid.discovery.LookupNodeService;
+import io.druid.indexer.TaskState;
 import io.druid.indexing.common.SegmentLoaderFactory;
 import io.druid.indexing.common.TaskStatus;
 import io.druid.indexing.common.TaskToolbox;
@@ -73,10 +70,13 @@ import io.druid.java.util.common.Pair;
 import io.druid.java.util.common.StringUtils;
 import io.druid.java.util.common.concurrent.Execs;
 import io.druid.java.util.common.granularity.Granularities;
-import io.druid.java.util.common.guava.Sequences;
 import io.druid.java.util.common.jackson.JacksonUtils;
 import io.druid.java.util.common.logger.Logger;
 import io.druid.java.util.common.parsers.ParseException;
+import io.druid.java.util.emitter.EmittingLogger;
+import io.druid.java.util.emitter.core.NoopEmitter;
+import io.druid.java.util.emitter.service.ServiceEmitter;
+import io.druid.java.util.metrics.MonitorScheduler;
 import io.druid.math.expr.ExprMacroTable;
 import io.druid.metadata.EntryExistsException;
 import io.druid.query.DefaultQueryRunnerFactoryConglomerate;
@@ -103,10 +103,8 @@ import io.druid.query.timeseries.TimeseriesQueryRunnerFactory;
 import io.druid.query.timeseries.TimeseriesResultValue;
 import io.druid.segment.TestHelper;
 import io.druid.segment.indexing.DataSchema;
-import io.druid.segment.transform.ExpressionTransform;
 import io.druid.segment.indexing.RealtimeIOConfig;
 import io.druid.segment.indexing.RealtimeTuningConfig;
-import io.druid.segment.transform.TransformSpec;
 import io.druid.segment.indexing.granularity.UniformGranularitySpec;
 import io.druid.segment.loading.SegmentLoaderConfig;
 import io.druid.segment.loading.SegmentLoaderLocalCacheManager;
@@ -115,6 +113,8 @@ import io.druid.segment.realtime.FireDepartment;
 import io.druid.segment.realtime.plumber.SegmentHandoffNotifier;
 import io.druid.segment.realtime.plumber.SegmentHandoffNotifierFactory;
 import io.druid.segment.realtime.plumber.ServerTimeRejectionPolicyFactory;
+import io.druid.segment.transform.ExpressionTransform;
+import io.druid.segment.transform.TransformSpec;
 import io.druid.server.DruidNode;
 import io.druid.server.coordination.DataSegmentServerAnnouncer;
 import io.druid.server.coordination.ServerType;
@@ -134,9 +134,7 @@ import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
@@ -212,7 +210,7 @@ public class RealtimeIndexTaskTest
     }
 
     @Override
-    public void close() throws IOException
+    public void close()
     {
       synchronized (this) {
         closed = true;
@@ -229,7 +227,7 @@ public class RealtimeIndexTaskTest
 
     @Override
     @SuppressWarnings("unchecked")
-    public Firehose connect(InputRowParser parser, File temporaryDirectory) throws IOException, ParseException
+    public Firehose connect(InputRowParser parser, File temporaryDirectory) throws ParseException
     {
       return new TestFirehose(parser);
     }
@@ -261,7 +259,7 @@ public class RealtimeIndexTaskTest
   }
 
   @Test
-  public void testMakeTaskId() throws Exception
+  public void testMakeTaskId()
   {
     Assert.assertEquals(
         "index_realtime_test_0_2015-01-02T00:00:00.000Z_abcdefgh",
@@ -270,7 +268,7 @@ public class RealtimeIndexTaskTest
   }
 
   @Test(timeout = 60_000L)
-  public void testDefaultResource() throws Exception
+  public void testDefaultResource()
   {
     final RealtimeIndexTask task = makeRealtimeTask(null);
     Assert.assertEquals(task.getId(), task.getTaskResource().getAvailabilityGroup());
@@ -374,7 +372,7 @@ public class RealtimeIndexTaskTest
 
     // Wait for the task to finish.
     final TaskStatus taskStatus = statusFuture.get();
-    Assert.assertEquals(TaskStatus.Status.SUCCESS, taskStatus.getStatusCode());
+    Assert.assertEquals(TaskState.SUCCESS, taskStatus.getStatusCode());
   }
 
   @Test(timeout = 60_000L)
@@ -445,7 +443,7 @@ public class RealtimeIndexTaskTest
 
     // Wait for the task to finish.
     final TaskStatus taskStatus = statusFuture.get();
-    Assert.assertEquals(TaskStatus.Status.SUCCESS, taskStatus.getStatusCode());
+    Assert.assertEquals(TaskState.SUCCESS, taskStatus.getStatusCode());
   }
 
   @Test(timeout = 60_000L)
@@ -572,7 +570,7 @@ public class RealtimeIndexTaskTest
 
     // Wait for the task to finish.
     final TaskStatus taskStatus = statusFuture.get();
-    Assert.assertEquals(TaskStatus.Status.SUCCESS, taskStatus.getStatusCode());
+    Assert.assertEquals(TaskState.SUCCESS, taskStatus.getStatusCode());
   }
 
   @Test(timeout = 60_000L)
@@ -606,7 +604,7 @@ public class RealtimeIndexTaskTest
 
       // Wait for the task to finish. The status doesn't really matter, but we'll check it anyway.
       final TaskStatus taskStatus = statusFuture.get();
-      Assert.assertEquals(TaskStatus.Status.SUCCESS, taskStatus.getStatusCode());
+      Assert.assertEquals(TaskState.SUCCESS, taskStatus.getStatusCode());
 
       // Nothing should be published.
       Assert.assertEquals(Sets.newHashSet(), mdc.getPublished());
@@ -665,7 +663,7 @@ public class RealtimeIndexTaskTest
 
       // Wait for the task to finish.
       final TaskStatus taskStatus = statusFuture.get();
-      Assert.assertEquals(TaskStatus.Status.SUCCESS, taskStatus.getStatusCode());
+      Assert.assertEquals(TaskState.SUCCESS, taskStatus.getStatusCode());
     }
   }
 
@@ -760,7 +758,7 @@ public class RealtimeIndexTaskTest
 
       // Wait for the task to finish.
       final TaskStatus taskStatus = statusFuture.get();
-      Assert.assertEquals(TaskStatus.Status.SUCCESS, taskStatus.getStatusCode());
+      Assert.assertEquals(TaskState.SUCCESS, taskStatus.getStatusCode());
     }
   }
 
@@ -794,7 +792,7 @@ public class RealtimeIndexTaskTest
 
       // Wait for the task to finish. The status doesn't really matter, but we'll check it anyway.
       final TaskStatus taskStatus = statusFuture.get();
-      Assert.assertEquals(TaskStatus.Status.SUCCESS, taskStatus.getStatusCode());
+      Assert.assertEquals(TaskState.SUCCESS, taskStatus.getStatusCode());
 
       // Nothing should be published.
       Assert.assertEquals(Sets.newHashSet(), mdc.getPublished());
@@ -846,7 +844,7 @@ public class RealtimeIndexTaskTest
 
     // Wait for the task to finish.
     final TaskStatus taskStatus = statusFuture.get();
-    Assert.assertEquals(TaskStatus.Status.SUCCESS, taskStatus.getStatusCode());
+    Assert.assertEquals(TaskState.SUCCESS, taskStatus.getStatusCode());
   }
 
   private ListenableFuture<TaskStatus> runTask(final Task task, final TaskToolbox toolbox)
@@ -1049,10 +1047,6 @@ public class RealtimeIndexTaskTest
             //Noop
           }
 
-          Map<SegmentDescriptor, Pair<Executor, Runnable>> getHandOffCallbacks()
-          {
-            return handOffCallbacks;
-          }
         };
       }
     };
@@ -1096,7 +1090,7 @@ public class RealtimeIndexTaskTest
     return toolboxFactory.build(task);
   }
 
-  public long sumMetric(final Task task, final DimFilter filter, final String metric) throws Exception
+  public long sumMetric(final Task task, final DimFilter filter, final String metric)
   {
     // Do a query.
     TimeseriesQuery query = Druids.newTimeseriesQueryBuilder()
@@ -1110,10 +1104,8 @@ public class RealtimeIndexTaskTest
                                   .intervals("2000/3000")
                                   .build();
 
-    ArrayList<Result<TimeseriesResultValue>> results = Sequences.toList(
-        task.getQueryRunner(query).run(QueryPlus.wrap(query), ImmutableMap.<String, Object>of()),
-        Lists.<Result<TimeseriesResultValue>>newArrayList()
-    );
+    List<Result<TimeseriesResultValue>> results =
+        task.getQueryRunner(query).run(QueryPlus.wrap(query), ImmutableMap.of()).toList();
     return results.isEmpty() ? 0 : results.get(0).getValue().getLongMetric(metric);
   }
 }

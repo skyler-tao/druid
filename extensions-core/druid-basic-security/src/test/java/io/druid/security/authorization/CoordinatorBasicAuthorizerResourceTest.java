@@ -59,8 +59,8 @@ import java.util.Set;
 
 public class CoordinatorBasicAuthorizerResourceTest
 {
-  private final static String AUTHORIZER_NAME = "test";
-  private final static String AUTHORIZER_NAME2 = "test2";
+  private static final String AUTHORIZER_NAME = "test";
+  private static final String AUTHORIZER_NAME2 = "test2";
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
@@ -75,7 +75,7 @@ public class CoordinatorBasicAuthorizerResourceTest
   private HttpServletRequest req;
 
   @Before
-  public void setUp() throws Exception
+  public void setUp()
   {
     req = EasyMock.createStrictMock(HttpServletRequest.class);
 
@@ -124,7 +124,7 @@ public class CoordinatorBasicAuthorizerResourceTest
   }
 
   @After
-  public void tearDown() throws Exception
+  public void tearDown()
   {
     storageUpdater.stop();
   }
@@ -289,7 +289,7 @@ public class CoordinatorBasicAuthorizerResourceTest
   }
 
   @Test
-  public void testRoleAssignment() throws Exception
+  public void testRoleAssignment()
   {
     Response response = resource.createRole(req, AUTHORIZER_NAME, "druidRole");
     Assert.assertEquals(200, response.getStatus());

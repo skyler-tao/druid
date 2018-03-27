@@ -76,11 +76,6 @@ public class DruidDataSource
     return this;
   }
 
-  public DataSegment getSegment(String identifier)
-  {
-    return idToSegmentMap.get(identifier);
-  }
-
   public boolean isEmpty()
   {
     return idToSegmentMap.isEmpty();

@@ -21,6 +21,7 @@ package io.druid.segment.incremental;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -30,6 +31,7 @@ import com.google.common.collect.Maps;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
 import io.druid.collections.NonBlockingPool;
+import io.druid.common.config.NullHandling;
 import io.druid.common.guava.GuavaUtils;
 import io.druid.data.input.InputRow;
 import io.druid.data.input.MapBasedRow;
@@ -47,6 +49,7 @@ import io.druid.query.aggregation.PostAggregator;
 import io.druid.query.dimension.DimensionSpec;
 import io.druid.query.groupby.RowBasedColumnSelectorFactory;
 import io.druid.query.monomorphicprocessing.RuntimeShapeInspector;
+import io.druid.segment.AbstractIndex;
 import io.druid.segment.ColumnSelectorFactory;
 import io.druid.segment.ColumnValueSelector;
 import io.druid.segment.DimensionHandler;
@@ -59,6 +62,7 @@ import io.druid.segment.LongColumnSelector;
 import io.druid.segment.Metadata;
 import io.druid.segment.NilColumnValueSelector;
 import io.druid.segment.ObjectColumnSelector;
+import io.druid.segment.StorageAdapter;
 import io.druid.segment.VirtualColumns;
 import io.druid.segment.column.Column;
 import io.druid.segment.column.ColumnCapabilities;
@@ -94,7 +98,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  */
-public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>, Closeable
+public abstract class IncrementalIndex<AggregatorType> extends AbstractIndex implements Iterable<Row>, Closeable
 {
   private volatile DateTime maxIngestedEventTime;
 
@@ -150,21 +154,33 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
           return new ColumnValueSelector()
           {
             @Override
+            public boolean isNull()
+            {
+              return in.get().getMetric(column) == null;
+            }
+
+            @Override
             public long getLong()
             {
-              return in.get().getMetric(column).longValue();
+              Number metric = in.get().getMetric(column);
+              assert NullHandling.replaceWithDefault() || metric != null;
+              return DimensionHandlerUtils.nullToZero(metric).longValue();
             }
 
             @Override
             public float getFloat()
             {
-              return in.get().getMetric(column).floatValue();
+              Number metric = in.get().getMetric(column);
+              assert NullHandling.replaceWithDefault() || metric != null;
+              return DimensionHandlerUtils.nullToZero(metric).floatValue();
             }
 
             @Override
             public double getDouble()
             {
-              return in.get().getMetric(column).doubleValue();
+              Number metric = in.get().getMetric(column);
+              assert NullHandling.replaceWithDefault() || metric != null;
+              return DimensionHandlerUtils.nullToZero(metric).doubleValue();
             }
 
             @Override
@@ -282,6 +298,8 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
       ValueType type = TYPE_MAP.get(dimSchema.getValueType());
       String dimName = dimSchema.getName();
       ColumnCapabilitiesImpl capabilities = makeCapabilitesFromValueType(type);
+      capabilities.setHasBitmapIndexes(dimSchema.hasBitmapIndex());
+
       if (dimSchema.getTypeName().equals(DimensionSchema.SPATIAL_TYPE_NAME)) {
         capabilities.setHasSpatialIndexes(true);
       } else {
@@ -459,6 +477,9 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
 
   protected abstract double getMetricDoubleValue(int rowOffset, int aggOffset);
 
+  protected abstract boolean isNull(int rowOffset, int aggOffset);
+
+
   @Override
   public void close()
   {
@@ -531,6 +552,9 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
     synchronized (dimensionDescs) {
       dims = new Object[dimensionDescs.size()];
       for (String dimension : rowDimensions) {
+        if (Strings.isNullOrEmpty(dimension)) {
+          continue;
+        }
         boolean wasNewDim = false;
         ColumnCapabilitiesImpl capabilities;
         DimensionDesc desc = dimensionDescs.get(dimension);
@@ -552,7 +576,10 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
         }
         DimensionHandler handler = desc.getHandler();
         DimensionIndexer indexer = desc.getIndexer();
-        Object dimsKey = indexer.processRowValsToUnsortedEncodedKeyComponent(row.getRaw(dimension));
+        Object dimsKey = indexer.processRowValsToUnsortedEncodedKeyComponent(
+            row.getRaw(dimension),
+            reportParseExceptions
+        );
 
         // Set column capabilities as data is coming in
         if (!capabilities.hasMultipleValues() && dimsKey != null && handler.getLengthOfEncodedKeyComponent(dimsKey) > 1) {
@@ -760,6 +787,20 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
   public List<String> getMetricNames()
   {
     return ImmutableList.copyOf(metricDescs.keySet());
+  }
+
+  @Override
+  public List<String> getColumnNames()
+  {
+    List<String> columnNames = new ArrayList<>(getDimensionNames());
+    columnNames.addAll(getMetricNames());
+    return columnNames;
+  }
+
+  @Override
+  public StorageAdapter toStorageAdapter()
+  {
+    return new IncrementalIndexStorageAdapter(this);
   }
 
   public ColumnCapabilities getCapabilities(String column)
@@ -1373,6 +1414,7 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
     @Override
     public long getLong()
     {
+      assert NullHandling.replaceWithDefault() || !isNull();
       return getMetricLongValue(currEntry.getValue(), metricIndex);
     }
 
@@ -1381,9 +1423,15 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
     {
       inspector.visit("index", IncrementalIndex.this);
     }
+
+    @Override
+    public boolean isNull()
+    {
+      return IncrementalIndex.this.isNull(currEntry.getValue(), metricIndex);
+    }
   }
 
-  private class ObjectMetricColumnSelector implements ObjectColumnSelector
+  private class ObjectMetricColumnSelector extends ObjectColumnSelector
   {
     private final TimeAndDimsHolder currEntry;
     private final int metricIndex;
@@ -1434,6 +1482,7 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
     @Override
     public float getFloat()
     {
+      assert NullHandling.replaceWithDefault() || !isNull();
       return getMetricFloatValue(currEntry.getValue(), metricIndex);
     }
 
@@ -1441,6 +1490,12 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
     public void inspectRuntimeShape(RuntimeShapeInspector inspector)
     {
       inspector.visit("index", IncrementalIndex.this);
+    }
+
+    @Override
+    public boolean isNull()
+    {
+      return IncrementalIndex.this.isNull(currEntry.getValue(), metricIndex);
     }
   }
 
@@ -1458,7 +1513,14 @@ public abstract class IncrementalIndex<AggregatorType> implements Iterable<Row>,
     @Override
     public double getDouble()
     {
+      assert NullHandling.replaceWithDefault() || !isNull();
       return getMetricDoubleValue(currEntry.getValue(), metricIndex);
+    }
+
+    @Override
+    public boolean isNull()
+    {
+      return IncrementalIndex.this.isNull(currEntry.getValue(), metricIndex);
     }
 
     @Override

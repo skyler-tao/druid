@@ -26,6 +26,7 @@ import com.google.common.io.ByteSink;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
+import io.druid.java.util.common.io.NativeIO;
 import io.druid.java.util.common.logger.Logger;
 
 import java.io.BufferedInputStream;
@@ -36,7 +37,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Enumeration;
-import java.util.concurrent.Callable;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
@@ -48,9 +48,38 @@ public class CompressionUtils
 {
   private static final Logger log = new Logger(CompressionUtils.class);
   private static final int DEFAULT_RETRY_COUNT = 3;
+  private static final String GZ_SUFFIX = ".gz";
+  private static final String ZIP_SUFFIX = ".zip";
 
-  public static final String GZ_SUFFIX = ".gz";
-  public static final String ZIP_SUFFIX = ".zip";
+  /**
+   * Zip the contents of directory into the file indicated by outputZipFile. Sub directories are skipped
+   *
+   * @param directory     The directory whose contents should be added to the zip in the output stream.
+   * @param outputZipFile The output file to write the zipped data to
+   * @param fsync         True if the output file should be fsynced to disk
+   *
+   * @return The number of bytes (uncompressed) read from the input directory.
+   *
+   * @throws IOException
+   */
+  public static long zip(File directory, File outputZipFile, boolean fsync) throws IOException
+  {
+    if (!isZip(outputZipFile.getName())) {
+      log.warn("No .zip suffix[%s], putting files from [%s] into it anyway.", outputZipFile, directory);
+    }
+
+    try (final FileOutputStream out = new FileOutputStream(outputZipFile)) {
+      long bytes = zip(directory, out);
+
+      // For explanation of why fsyncing here is a good practice:
+      // https://github.com/druid-io/druid/pull/5187#pullrequestreview-85188984
+      if (fsync) {
+        out.getChannel().force(true);
+      }
+
+      return bytes;
+    }
+  }
 
   /**
    * Zip the contents of directory into the file indicated by outputZipFile. Sub directories are skipped
@@ -64,20 +93,14 @@ public class CompressionUtils
    */
   public static long zip(File directory, File outputZipFile) throws IOException
   {
-    if (!isZip(outputZipFile.getName())) {
-      log.warn("No .zip suffix[%s], putting files from [%s] into it anyway.", outputZipFile, directory);
-    }
-
-    try (final FileOutputStream out = new FileOutputStream(outputZipFile)) {
-      return zip(directory, out);
-    }
+    return zip(directory, outputZipFile, false);
   }
 
   /**
    * Zips the contents of the input directory to the output stream. Sub directories are skipped
    *
    * @param directory The directory whose contents should be added to the zip in the output stream.
-   * @param out       The output stream to write the zip data to. It is closed in the process
+   * @param out       The output stream to write the zip data to. Caller is responsible for closing this stream.
    *
    * @return The number of bytes (uncompressed) read from the input directory.
    *
@@ -88,23 +111,23 @@ public class CompressionUtils
     if (!directory.isDirectory()) {
       throw new IOE("directory[%s] is not a directory", directory);
     }
-    final File[] files = directory.listFiles();
+
+    final ZipOutputStream zipOut = new ZipOutputStream(out);
 
     long totalSize = 0;
-    try (final ZipOutputStream zipOut = new ZipOutputStream(out)) {
-      for (File file : files) {
-        log.info("Adding file[%s] with size[%,d].  Total size so far[%,d]", file, file.length(), totalSize);
-        if (file.length() >= Integer.MAX_VALUE) {
-          zipOut.finish();
-          throw new IOE("file[%s] too large [%,d]", file, file.length());
-        }
-        zipOut.putNextEntry(new ZipEntry(file.getName()));
-        totalSize += Files.asByteSource(file).copyTo(zipOut);
+    for (File file : directory.listFiles()) {
+      log.info("Adding file[%s] with size[%,d].  Total size so far[%,d]", file, file.length(), totalSize);
+      if (file.length() >= Integer.MAX_VALUE) {
+        zipOut.finish();
+        throw new IOE("file[%s] too large [%,d]", file, file.length());
       }
-      zipOut.closeEntry();
-      // Workarround for http://hg.openjdk.java.net/jdk8/jdk8/jdk/rev/759aa847dcaf
-      zipOut.flush();
+      zipOut.putNextEntry(new ZipEntry(file.getName()));
+      totalSize += Files.asByteSource(file).copyTo(zipOut);
     }
+    zipOut.closeEntry();
+    // Workaround for http://hg.openjdk.java.net/jdk8/jdk8/jdk/rev/759aa847dcaf
+    zipOut.flush();
+    zipOut.finish();
 
     return totalSize;
   }
@@ -133,14 +156,7 @@ public class CompressionUtils
     if (!cacheLocally) {
       try {
         return RetryUtils.retry(
-            new Callable<FileUtils.FileCopyResult>()
-            {
-              @Override
-              public FileUtils.FileCopyResult call() throws Exception
-              {
-                return unzip(byteSource.openStream(), outDir);
-              }
-            },
+            () -> unzip(byteSource.openStream(), outDir),
             shouldRetry,
             DEFAULT_RETRY_COUNT
         );
@@ -209,6 +225,7 @@ public class CompressionUtils
       final Enumeration<? extends ZipEntry> enumeration = zipFile.entries();
       while (enumeration.hasMoreElements()) {
         final ZipEntry entry = enumeration.nextElement();
+        final File outFile = new File(outDir, entry.getName());
         result.addFiles(
             FileUtils.retryCopy(
                 new ByteSource()
@@ -219,7 +236,7 @@ public class CompressionUtils
                     return new BufferedInputStream(zipFile.getInputStream(entry));
                   }
                 },
-                new File(outDir, entry.getName()),
+                outFile,
                 FileUtils.IS_EXCEPTION,
                 DEFAULT_RETRY_COUNT
             ).getFiles()
@@ -248,7 +265,9 @@ public class CompressionUtils
       ZipEntry entry;
       while ((entry = zipIn.getNextEntry()) != null) {
         final File file = new File(outDir, entry.getName());
-        Files.asByteSink(file).writeFrom(zipIn);
+
+        NativeIO.chunkedCopy(zipIn, file);
+
         result.addFile(file);
         zipIn.closeEntry();
       }
@@ -266,7 +285,7 @@ public class CompressionUtils
    *
    * @throws IOException
    */
-  public static FileUtils.FileCopyResult gunzip(final File pulledFile, File outFile) throws IOException
+  public static FileUtils.FileCopyResult gunzip(final File pulledFile, File outFile)
   {
     return gunzip(Files.asByteSource(pulledFile), outFile);
   }
@@ -282,7 +301,7 @@ public class CompressionUtils
   public static FileUtils.FileCopyResult gunzip(InputStream in, File outFile) throws IOException
   {
     try (GZIPInputStream gzipInputStream = gzipInputStream(in)) {
-      Files.asByteSink(outFile).writeFrom(gzipInputStream);
+      NativeIO.chunkedCopy(gzipInputStream, outFile);
       return new FileUtils.FileCopyResult(outFile);
     }
   }
@@ -412,14 +431,12 @@ public class CompressionUtils
    * @throws IOException
    */
   public static FileUtils.FileCopyResult gzip(final File inFile, final File outFile, Predicate<Throwable> shouldRetry)
-      throws IOException
   {
     gzip(Files.asByteSource(inFile), Files.asByteSink(outFile), shouldRetry);
     return new FileUtils.FileCopyResult(outFile);
   }
 
   public static long gzip(final ByteSource in, final ByteSink out, Predicate<Throwable> shouldRetry)
-      throws IOException
   {
     return StreamUtils.retryCopy(
         in,
@@ -447,7 +464,7 @@ public class CompressionUtils
    *
    * @throws IOException
    */
-  public static FileUtils.FileCopyResult gzip(final File inFile, final File outFile) throws IOException
+  public static FileUtils.FileCopyResult gzip(final File inFile, final File outFile)
   {
     return gzip(inFile, outFile, FileUtils.IS_EXCEPTION);
   }

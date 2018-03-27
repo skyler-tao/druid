@@ -26,21 +26,22 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.SettableFuture;
-import com.metamx.emitter.EmittingLogger;
-import com.metamx.emitter.core.Event;
-import com.metamx.emitter.core.LoggingEmitter;
-import com.metamx.emitter.service.ServiceEmitter;
-import com.metamx.http.client.HttpClient;
-import com.metamx.http.client.Request;
-import com.metamx.http.client.response.HttpResponseHandler;
-import com.metamx.http.client.response.SequenceInputStreamResponseHandler;
 import io.druid.audit.AuditInfo;
+import io.druid.common.config.ConfigManager.SetResult;
 import io.druid.common.config.JacksonConfigManager;
 import io.druid.discovery.DruidNodeDiscoveryProvider;
 import io.druid.jackson.DefaultObjectMapper;
 import io.druid.java.util.common.IAE;
 import io.druid.java.util.common.ISE;
 import io.druid.java.util.common.StringUtils;
+import io.druid.java.util.emitter.EmittingLogger;
+import io.druid.java.util.emitter.core.Event;
+import io.druid.java.util.emitter.core.LoggingEmitter;
+import io.druid.java.util.emitter.service.ServiceEmitter;
+import io.druid.java.util.http.client.HttpClient;
+import io.druid.java.util.http.client.Request;
+import io.druid.java.util.http.client.response.HttpResponseHandler;
+import io.druid.java.util.http.client.response.SequenceInputStreamResponseHandler;
 import io.druid.query.lookup.LookupsState;
 import io.druid.server.http.HostAndPortWithScheme;
 import org.easymock.EasyMock;
@@ -530,7 +531,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testUpdateLookupsFailsUnitialized() throws Exception
+  public void testUpdateLookupsFailsUnitialized()
   {
     final LookupCoordinatorManager manager = new LookupCoordinatorManager(
         client,
@@ -553,7 +554,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testUpdateLookupsInitialization() throws Exception
+  public void testUpdateLookupsInitialization()
   {
     final LookupCoordinatorManager manager = new LookupCoordinatorManager(
         client,
@@ -578,14 +579,14 @@ public class LookupCoordinatorManagerTest
                         EasyMock.eq(LookupCoordinatorManager.LOOKUP_CONFIG_KEY),
                         EasyMock.eq(EMPTY_TIERED_LOOKUP),
                         EasyMock.eq(auditInfo)
-                    )).andReturn(true).once();
+                    )).andReturn(SetResult.ok()).once();
     EasyMock.replay(configManager);
     manager.updateLookups(EMPTY_TIERED_LOOKUP, auditInfo);
     EasyMock.verify(configManager);
   }
 
   @Test
-  public void testUpdateLookupAdds() throws Exception
+  public void testUpdateLookupAdds()
   {
     final LookupCoordinatorManager manager = new LookupCoordinatorManager(
         client,
@@ -609,14 +610,14 @@ public class LookupCoordinatorManagerTest
                         EasyMock.eq(LookupCoordinatorManager.LOOKUP_CONFIG_KEY),
                         EasyMock.eq(TIERED_LOOKUP_MAP_V0),
                         EasyMock.eq(auditInfo)
-                    )).andReturn(true).once();
+                    )).andReturn(SetResult.ok()).once();
     EasyMock.replay(configManager);
     manager.updateLookup(LOOKUP_TIER, SINGLE_LOOKUP_NAME, SINGLE_LOOKUP_SPEC_V0, auditInfo);
     EasyMock.verify(configManager);
   }
 
   @Test
-  public void testUpdateLookupsAddsNewLookup() throws Exception
+  public void testUpdateLookupsAddsNewLookup()
   {
     final LookupExtractorFactoryMapContainer ignore = new LookupExtractorFactoryMapContainer(
         "v0",
@@ -665,7 +666,7 @@ public class LookupCoordinatorManagerTest
                         )),
             EasyMock.eq(auditInfo)
         )
-    ).andReturn(true).once();
+    ).andReturn(SetResult.ok()).once();
     EasyMock.replay(configManager);
     Assert.assertTrue(
         manager.updateLookups(
@@ -679,7 +680,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testUpdateLookupsOnlyUpdatesToTier() throws Exception
+  public void testUpdateLookupsOnlyUpdatesToTier()
   {
     final LookupExtractorFactoryMapContainer ignore = new LookupExtractorFactoryMapContainer(
         "v0",
@@ -725,7 +726,7 @@ public class LookupCoordinatorManagerTest
                         )),
             EasyMock.eq(auditInfo)
         )
-    ).andReturn(true).once();
+    ).andReturn(SetResult.ok()).once();
     EasyMock.replay(configManager);
     Assert.assertTrue(
         manager.updateLookups(
@@ -739,7 +740,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testUpdateLookupsUpdates() throws Exception
+  public void testUpdateLookupsUpdates()
   {
     final LookupCoordinatorManager manager = new LookupCoordinatorManager(
         client,
@@ -762,14 +763,14 @@ public class LookupCoordinatorManagerTest
                         EasyMock.eq(LookupCoordinatorManager.LOOKUP_CONFIG_KEY),
                         EasyMock.eq(TIERED_LOOKUP_MAP_V1),
                         EasyMock.eq(auditInfo)
-                    )).andReturn(true).once();
+                    )).andReturn(SetResult.ok()).once();
     EasyMock.replay(configManager);
     manager.updateLookups(TIERED_LOOKUP_MAP_V1, auditInfo);
     EasyMock.verify(configManager);
   }
 
   @Test
-  public void testUpdateLookupFailsSameVersionUpdates() throws Exception
+  public void testUpdateLookupFailsSameVersionUpdates()
   {
     final LookupCoordinatorManager manager = new LookupCoordinatorManager(
         client,
@@ -797,7 +798,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testUpdateLookupsAddsNewTier() throws Exception
+  public void testUpdateLookupsAddsNewTier()
   {
     final LookupExtractorFactoryMapContainer ignore = new LookupExtractorFactoryMapContainer(
         "v0",
@@ -837,7 +838,7 @@ public class LookupCoordinatorManagerTest
                         )),
             EasyMock.eq(auditInfo)
         )
-    ).andReturn(true).once();
+    ).andReturn(SetResult.ok()).once();
     EasyMock.replay(configManager);
     Assert.assertTrue(manager.updateLookups(ImmutableMap.<String, Map<String, LookupExtractorFactoryMapContainer>>of(
                                                 LOOKUP_TIER + "1", ImmutableMap.of(
@@ -849,7 +850,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testDeleteLookup() throws Exception
+  public void testDeleteLookup()
   {
     final LookupExtractorFactoryMapContainer ignore = new LookupExtractorFactoryMapContainer(
         "v0",
@@ -892,14 +893,14 @@ public class LookupCoordinatorManagerTest
             ),
             EasyMock.eq(auditInfo)
         )
-    ).andReturn(true).once();
+    ).andReturn(SetResult.ok()).once();
     EasyMock.replay(configManager);
     Assert.assertTrue(manager.deleteLookup(LOOKUP_TIER, "foo", auditInfo));
     EasyMock.verify(configManager);
   }
 
   @Test
-  public void testDeleteLookupIgnoresMissing() throws Exception
+  public void testDeleteLookupIgnoresMissing()
   {
     final LookupExtractorFactoryMapContainer ignore = new LookupExtractorFactoryMapContainer(
         "v0",
@@ -928,7 +929,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testDeleteLookupIgnoresNotReady() throws Exception
+  public void testDeleteLookupIgnoresNotReady()
   {
     final LookupCoordinatorManager manager = new LookupCoordinatorManager(
         client,
@@ -950,7 +951,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testGetLookup() throws Exception
+  public void testGetLookup()
   {
     final LookupExtractorFactoryMapContainer lookup = new LookupExtractorFactoryMapContainer(
         "v0",
@@ -979,7 +980,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testGetLookupIgnoresMalformed() throws Exception
+  public void testGetLookupIgnoresMalformed()
   {
     final LookupExtractorFactoryMapContainer lookup = new LookupExtractorFactoryMapContainer(
         "v0",
@@ -1008,7 +1009,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testGetLookupIgnoresNotReady() throws Exception
+  public void testGetLookupIgnoresNotReady()
   {
     final LookupCoordinatorManager manager = new LookupCoordinatorManager(
         client,
@@ -1328,7 +1329,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testLookupDiscoverAll() throws Exception
+  public void testLookupDiscoverAll()
   {
     final Set<String> fakeChildren = ImmutableSet.of("tier1", "tier2");
     EasyMock.reset(lookupNodeDiscovery);
@@ -1351,7 +1352,7 @@ public class LookupCoordinatorManagerTest
   }
 
   @Test
-  public void testDiscoverNodesInTier() throws Exception
+  public void testDiscoverNodesInTier()
   {
     EasyMock.reset(lookupNodeDiscovery);
     EasyMock.expect(lookupNodeDiscovery.getNodesInTier("tier"))
@@ -1384,7 +1385,7 @@ public class LookupCoordinatorManagerTest
 
   //tests that lookups stored in db from 0.10.0 are converted and restored.
   @Test
-  public void testBackwardCompatibilityMigration() throws Exception
+  public void testBackwardCompatibilityMigration()
   {
     EasyMock.reset(configManager);
 
@@ -1427,7 +1428,7 @@ public class LookupCoordinatorManagerTest
             ),
             EasyMock.anyObject(AuditInfo.class)
         )
-    ).andReturn(true).once();
+    ).andReturn(SetResult.ok()).once();
 
     EasyMock.replay(configManager);
 

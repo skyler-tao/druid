@@ -34,9 +34,6 @@ import io.druid.java.util.common.StringUtils;
 import io.druid.java.util.common.granularity.Granularities;
 import io.druid.java.util.common.guava.Sequence;
 import io.druid.java.util.common.guava.Sequences;
-import io.druid.segment.writeout.OffHeapMemorySegmentWriteOutMediumFactory;
-import io.druid.segment.writeout.SegmentWriteOutMediumFactory;
-import io.druid.segment.writeout.TmpFileSegmentWriteOutMediumFactory;
 import io.druid.query.BitmapResultFactory;
 import io.druid.query.aggregation.Aggregator;
 import io.druid.query.aggregation.CountAggregatorFactory;
@@ -67,6 +64,9 @@ import io.druid.segment.data.RoaringBitmapSerdeFactory;
 import io.druid.segment.incremental.IncrementalIndex;
 import io.druid.segment.incremental.IncrementalIndexStorageAdapter;
 import io.druid.segment.virtual.ExpressionVirtualColumn;
+import io.druid.segment.writeout.OffHeapMemorySegmentWriteOutMediumFactory;
+import io.druid.segment.writeout.SegmentWriteOutMediumFactory;
+import io.druid.segment.writeout.TmpFileSegmentWriteOutMediumFactory;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -74,8 +74,6 @@ import org.junit.rules.TemporaryFolder;
 import org.junit.runners.Parameterized;
 
 import java.io.Closeable;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -105,15 +103,8 @@ public abstract class BaseFilterTest
   // For filter tests, the test setup creates a segment.
   // Creating a new segment for every test method call is pretty slow, so cache the StorageAdapters.
   // Each thread gets its own map.
-  protected static ThreadLocal<Map<String, Map<String, Pair<StorageAdapter, Closeable>>>> adapterCache =
-      new ThreadLocal<Map<String, Map<String, Pair<StorageAdapter, Closeable>>>>()
-      {
-        @Override
-        protected Map<String, Map<String, Pair<StorageAdapter, Closeable>>> initialValue()
-        {
-          return new HashMap<>();
-        }
-      };
+  private static ThreadLocal<Map<String, Map<String, Pair<StorageAdapter, Closeable>>>> adapterCache =
+      ThreadLocal.withInitial(HashMap::new);
 
   public BaseFilterTest(
       String testName,
@@ -168,7 +159,7 @@ public abstract class BaseFilterTest
   }
 
   @Parameterized.Parameters(name = "{0}")
-  public static Collection<Object[]> constructorFeeder() throws IOException
+  public static Collection<Object[]> constructorFeeder()
   {
     return makeConstructors();
   }
@@ -199,7 +190,7 @@ public abstract class BaseFilterTest
                 new Closeable()
                 {
                   @Override
-                  public void close() throws IOException
+                  public void close()
                   {
                     index.close();
                   }
@@ -218,7 +209,7 @@ public abstract class BaseFilterTest
                 new Closeable()
                 {
                   @Override
-                  public void close() throws IOException
+                  public void close()
                   {
                     index.close();
                   }
@@ -237,7 +228,7 @@ public abstract class BaseFilterTest
                 new Closeable()
                 {
                   @Override
-                  public void close() throws IOException
+                  public void close()
                   {
                     index.close();
                   }
@@ -337,7 +328,7 @@ public abstract class BaseFilterTest
           }
         }
     );
-    return Sequences.toList(seq, new ArrayList<List<String>>()).get(0);
+    return seq.toList().get(0);
   }
 
   private long selectCountUsingFilteredAggregator(final DimFilter filter)
@@ -363,7 +354,7 @@ public abstract class BaseFilterTest
           }
         }
     );
-    return Sequences.toList(aggSeq, new ArrayList<Aggregator>()).get(0).getLong();
+    return aggSeq.toList().get(0).getLong();
   }
 
   private List<String> selectColumnValuesMatchingFilterUsingPostFiltering(
@@ -432,7 +423,7 @@ public abstract class BaseFilterTest
           }
         }
     );
-    return Sequences.toList(seq, new ArrayList<List<String>>()).get(0);
+    return seq.toList().get(0);
   }
 
   private List<String> selectColumnValuesMatchingFilterUsingRowBasedColumnSelectorFactory(

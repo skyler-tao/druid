@@ -34,10 +34,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.metamx.emitter.EmittingLogger;
-import com.metamx.emitter.service.ServiceEmitter;
-import com.metamx.metrics.Monitor;
-import com.metamx.metrics.MonitorScheduler;
 import io.druid.client.cache.MapCache;
 import io.druid.data.input.Firehose;
 import io.druid.data.input.FirehoseFactory;
@@ -47,6 +43,7 @@ import io.druid.data.input.impl.InputRowParser;
 import io.druid.discovery.DataNodeService;
 import io.druid.discovery.DruidNodeAnnouncer;
 import io.druid.discovery.LookupNodeService;
+import io.druid.indexer.TaskState;
 import io.druid.indexing.common.SegmentLoaderFactory;
 import io.druid.indexing.common.TaskLock;
 import io.druid.indexing.common.TaskStatus;
@@ -81,7 +78,11 @@ import io.druid.java.util.common.RE;
 import io.druid.java.util.common.StringUtils;
 import io.druid.java.util.common.granularity.Granularities;
 import io.druid.java.util.common.guava.Comparators;
-import io.druid.metadata.SQLMetadataStorageActionHandlerFactory;
+import io.druid.java.util.emitter.EmittingLogger;
+import io.druid.java.util.emitter.service.ServiceEmitter;
+import io.druid.java.util.metrics.Monitor;
+import io.druid.java.util.metrics.MonitorScheduler;
+import io.druid.metadata.DerbyMetadataStorageActionHandlerFactory;
 import io.druid.metadata.TestDerbyConnector;
 import io.druid.query.QueryRunnerFactoryConglomerate;
 import io.druid.query.SegmentDescriptor;
@@ -102,7 +103,6 @@ import io.druid.segment.loading.LocalDataSegmentKiller;
 import io.druid.segment.loading.LocalDataSegmentPusherConfig;
 import io.druid.segment.loading.SegmentLoaderConfig;
 import io.druid.segment.loading.SegmentLoaderLocalCacheManager;
-import io.druid.segment.loading.SegmentLoadingException;
 import io.druid.segment.loading.StorageLocationConfig;
 import io.druid.segment.realtime.FireDepartment;
 import io.druid.segment.realtime.FireDepartmentTest;
@@ -249,7 +249,7 @@ public class TaskLifecycleTest
   private static class MockExceptionalFirehoseFactory implements FirehoseFactory
   {
     @Override
-    public Firehose connect(InputRowParser parser, File temporaryDirectory) throws IOException
+    public Firehose connect(InputRowParser parser, File temporaryDirectory)
     {
       return new Firehose()
       {
@@ -280,7 +280,7 @@ public class TaskLifecycleTest
         }
 
         @Override
-        public void close() throws IOException
+        public void close()
         {
 
         }
@@ -300,7 +300,7 @@ public class TaskLifecycleTest
     }
 
     @Override
-    public Firehose connect(InputRowParser parser, File temporaryDirectory) throws IOException
+    public Firehose connect(InputRowParser parser, File temporaryDirectory)
     {
       final Iterator<InputRow> inputRowIterator = usedByRealtimeIdxTask
                                                   ? realtimeIdxTaskInputRows.iterator()
@@ -335,7 +335,7 @@ public class TaskLifecycleTest
         }
 
         @Override
-        public void close() throws IOException
+        public void close()
         {
 
         }
@@ -406,7 +406,7 @@ public class TaskLifecycleTest
         taskStorage = new MetadataTaskStorage(
             testDerbyConnector,
             new TaskStorageConfig(null),
-            new SQLMetadataStorageActionHandlerFactory(
+            new DerbyMetadataStorageActionHandlerFactory(
                 testDerbyConnector,
                 derbyConnectorRule.metadataTablesConfigSupplier().get(),
                 mapper
@@ -457,10 +457,6 @@ public class TaskLifecycleTest
             //Noop
           }
 
-          Map<SegmentDescriptor, Pair<Executor, Runnable>> getHandOffCallbacks()
-          {
-            return handOffCallbacks;
-          }
         };
       }
     };
@@ -484,7 +480,7 @@ public class TaskLifecycleTest
       }
 
       @Override
-      public DataSegment push(File file, DataSegment segment) throws IOException
+      public DataSegment push(File file, DataSegment segment, boolean replaceExisting)
       {
         pushedSegments++;
         return segment;
@@ -549,7 +545,6 @@ public class TaskLifecycleTest
         {
           @Override
           public DataSegment move(DataSegment dataSegment, Map<String, Object> targetLoadSpec)
-              throws SegmentLoadingException
           {
             return dataSegment;
           }
@@ -557,13 +552,13 @@ public class TaskLifecycleTest
         new DataSegmentArchiver()
         {
           @Override
-          public DataSegment archive(DataSegment segment) throws SegmentLoadingException
+          public DataSegment archive(DataSegment segment)
           {
             return segment;
           }
 
           @Override
-          public DataSegment restore(DataSegment segment) throws SegmentLoadingException
+          public DataSegment restore(DataSegment segment)
           {
             return segment;
           }
@@ -571,25 +566,25 @@ public class TaskLifecycleTest
         new DataSegmentAnnouncer()
         {
           @Override
-          public void announceSegment(DataSegment segment) throws IOException
+          public void announceSegment(DataSegment segment)
           {
             announcedSinks++;
           }
 
           @Override
-          public void unannounceSegment(DataSegment segment) throws IOException
+          public void unannounceSegment(DataSegment segment)
           {
 
           }
 
           @Override
-          public void announceSegments(Iterable<DataSegment> segments) throws IOException
+          public void announceSegments(Iterable<DataSegment> segments)
           {
 
           }
 
           @Override
-          public void unannounceSegments(Iterable<DataSegment> segments) throws IOException
+          public void unannounceSegments(Iterable<DataSegment> segments)
           {
 
           }
@@ -670,7 +665,7 @@ public class TaskLifecycleTest
                 mapper
             ),
             new IndexIOConfig(new MockFirehoseFactory(false), false),
-            new IndexTuningConfig(10000, 10, null, null, null, indexSpec, 3, true, true, false, null, null, null)
+            new IndexTuningConfig(10000, 10, null, null, null, indexSpec, 3, true, true, false, null, null, null, null)
         ),
         null
     );
@@ -683,8 +678,8 @@ public class TaskLifecycleTest
     final List<DataSegment> publishedSegments = byIntervalOrdering.sortedCopy(mdc.getPublished());
     final List<DataSegment> loggedSegments = byIntervalOrdering.sortedCopy(tsqa.getInsertedSegments(indexTask.getId()));
 
-    Assert.assertEquals("statusCode", TaskStatus.Status.SUCCESS, status.getStatusCode());
-    Assert.assertEquals("merged statusCode", TaskStatus.Status.SUCCESS, mergedStatus.getStatusCode());
+    Assert.assertEquals("statusCode", TaskState.SUCCESS, status.getStatusCode());
+    Assert.assertEquals("merged statusCode", TaskState.SUCCESS, mergedStatus.getStatusCode());
     Assert.assertEquals("segments logged vs published", loggedSegments, publishedSegments);
     Assert.assertEquals("num segments published", 2, mdc.getPublished().size());
     Assert.assertEquals("num segments nuked", 0, mdc.getNuked().size());
@@ -728,14 +723,14 @@ public class TaskLifecycleTest
                 mapper
             ),
             new IndexIOConfig(new MockExceptionalFirehoseFactory(), false),
-            new IndexTuningConfig(10000, 10, null, null, null, indexSpec, 3, true, true, false, null, null, null)
+            new IndexTuningConfig(10000, 10, null, null, null, indexSpec, 3, true, true, false, null, null, null, null)
         ),
         null
     );
 
     final TaskStatus status = runTask(indexTask);
 
-    Assert.assertEquals("statusCode", TaskStatus.Status.FAILED, status.getStatusCode());
+    Assert.assertEquals("statusCode", TaskState.FAILED, status.getStatusCode());
     Assert.assertEquals("num segments published", 0, mdc.getPublished().size());
     Assert.assertEquals("num segments nuked", 0, mdc.getNuked().size());
   }
@@ -803,7 +798,7 @@ public class TaskLifecycleTest
     final Task killTask = new KillTask(null, "test_kill_task", Intervals.of("2011-04-01/P4D"), null);
 
     final TaskStatus status = runTask(killTask);
-    Assert.assertEquals("merged statusCode", TaskStatus.Status.SUCCESS, status.getStatusCode());
+    Assert.assertEquals("merged statusCode", TaskState.SUCCESS, status.getStatusCode());
     Assert.assertEquals("num segments published", 0, mdc.getPublished().size());
     Assert.assertEquals("num segments nuked", 3, mdc.getNuked().size());
     Assert.assertTrue(
@@ -824,7 +819,7 @@ public class TaskLifecycleTest
     final Task rtishTask = new RealtimeishTask();
     final TaskStatus status = runTask(rtishTask);
 
-    Assert.assertEquals("statusCode", TaskStatus.Status.SUCCESS, status.getStatusCode());
+    Assert.assertEquals("statusCode", TaskState.SUCCESS, status.getStatusCode());
     Assert.assertEquals("num segments published", 2, mdc.getPublished().size());
     Assert.assertEquals("num segments nuked", 0, mdc.getNuked().size());
   }
@@ -838,7 +833,7 @@ public class TaskLifecycleTest
     );
     final TaskStatus status = runTask(noopTask);
 
-    Assert.assertEquals("statusCode", TaskStatus.Status.SUCCESS, status.getStatusCode());
+    Assert.assertEquals("statusCode", TaskState.SUCCESS, status.getStatusCode());
     Assert.assertEquals("num segments published", 0, mdc.getPublished().size());
     Assert.assertEquals("num segments nuked", 0, mdc.getNuked().size());
   }
@@ -852,7 +847,7 @@ public class TaskLifecycleTest
     );
     final TaskStatus status = runTask(neverReadyTask);
 
-    Assert.assertEquals("statusCode", TaskStatus.Status.FAILED, status.getStatusCode());
+    Assert.assertEquals("statusCode", TaskState.FAILED, status.getStatusCode());
     Assert.assertEquals("num segments published", 0, mdc.getPublished().size());
     Assert.assertEquals("num segments nuked", 0, mdc.getNuked().size());
   }
@@ -896,7 +891,7 @@ public class TaskLifecycleTest
 
     final TaskStatus status = runTask(task);
 
-    Assert.assertEquals("statusCode", TaskStatus.Status.SUCCESS, status.getStatusCode());
+    Assert.assertEquals("statusCode", TaskState.SUCCESS, status.getStatusCode());
     Assert.assertEquals("segments published", 1, mdc.getPublished().size());
     Assert.assertEquals("segments nuked", 0, mdc.getNuked().size());
   }
@@ -930,7 +925,7 @@ public class TaskLifecycleTest
 
     final TaskStatus status = runTask(task);
 
-    Assert.assertEquals("statusCode", TaskStatus.Status.FAILED, status.getStatusCode());
+    Assert.assertEquals("statusCode", TaskState.FAILED, status.getStatusCode());
     Assert.assertEquals("segments published", 0, mdc.getPublished().size());
     Assert.assertEquals("segments nuked", 0, mdc.getNuked().size());
   }
@@ -964,7 +959,7 @@ public class TaskLifecycleTest
 
     final TaskStatus status = runTask(task);
 
-    Assert.assertEquals("statusCode", TaskStatus.Status.FAILED, status.getStatusCode());
+    Assert.assertEquals("statusCode", TaskState.FAILED, status.getStatusCode());
     Assert.assertEquals("segments published", 0, mdc.getPublished().size());
     Assert.assertEquals("segments nuked", 0, mdc.getNuked().size());
   }
@@ -1033,7 +1028,7 @@ public class TaskLifecycleTest
       }
 
       @Override
-      public DataSegment push(File file, DataSegment dataSegment) throws IOException
+      public DataSegment push(File file, DataSegment dataSegment, boolean replaceExisting)
       {
         throw new RuntimeException("FAILURE");
       }
@@ -1093,7 +1088,7 @@ public class TaskLifecycleTest
                 mapper
             ),
             new IndexIOConfig(new MockFirehoseFactory(false), false),
-            new IndexTuningConfig(10000, 10, null, null, null, indexSpec, null, false, null, null, null, null, null)
+            new IndexTuningConfig(10000, 10, null, null, null, indexSpec, null, false, null, null, null, null, null, null)
         ),
         null
     );
@@ -1116,7 +1111,7 @@ public class TaskLifecycleTest
     final List<DataSegment> publishedSegments = byIntervalOrdering.sortedCopy(mdc.getPublished());
     final List<DataSegment> loggedSegments = byIntervalOrdering.sortedCopy(tsqa.getInsertedSegments(indexTask.getId()));
 
-    Assert.assertEquals("statusCode", TaskStatus.Status.SUCCESS, status.getStatusCode());
+    Assert.assertEquals("statusCode", TaskState.SUCCESS, status.getStatusCode());
     Assert.assertEquals("segments logged vs published", loggedSegments, publishedSegments);
     Assert.assertEquals("num segments published", 2, mdc.getPublished().size());
     Assert.assertEquals("num segments nuked", 0, mdc.getNuked().size());
